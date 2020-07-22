@@ -1,4 +1,11 @@
-library(ggplot2); library(knitr);  library(tidyverse); library(rstan); library(tufte); library(parallel); library(cmdstanr); library(posterior)
+library(ggplot2);
+library(knitr); 
+library(tidyverse);
+library(rstan);
+library(tufte);
+library(parallel);
+library(cmdstanr);
+library(posterior)
 set_cmdstan_path("/Users/hyunjimoon/Dropbox/20_paper/charles/code/cmdstan")
 source(file.path("tools", "cmdStanTools.r"))
 source(file.path("tools", "stanTools.r"))
@@ -35,7 +42,6 @@ data$rho_beta_prior <- 14.8171
 
 file <- file.path(modelDir, modelName, paste0(modelName, ".stan"))
 mod <- cmdstan_model(file, quiet = FALSE)
-#out <- mod$sample(data, chains = 1,iter_warmup = 100, iter_sampling = 100, parallel_chains = 1, save_warmup = FALSE, thin = 1)
 
 sbc <- function(stanmodel, modelName, data, M, ...) {
   # parameter names
@@ -65,7 +71,6 @@ sbc <- function(stanmodel, modelName, data, M, ...) {
   #bad <- sapply(post, FUN = function(x) class(x)[1] != "CmdStanMCMC")
   #print(bad)
   #post <- post[!bad]
-
   # prior predictive distribution
   Y <- sapply(post, FUN = function(p) {
     summary <- p$summary()
