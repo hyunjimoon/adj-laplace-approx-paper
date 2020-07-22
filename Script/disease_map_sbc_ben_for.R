@@ -2,8 +2,6 @@ library(ggplot2); library(knitr);  library(tidyverse); library(rstan); library(t
 set_cmdstan_path("/Users/hyunjimoon/Dropbox/20_paper/charles/code/cmdstan")
 source(file.path("tools", "cmdStanTools.r"))
 source(file.path("tools", "stanTools.r"))
-rm(list = ls(all.names = TRUE))
-gc()
 options(digits = 2);  options(htmltools.dir.version = FALSE)
 
 modelName <- "disease_map_ela_sbc"
