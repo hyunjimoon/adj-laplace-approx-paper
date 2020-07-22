@@ -1,4 +1,11 @@
-library(ggplot2); library(knitr);  library(tidyverse); library(rstan); library(tufte); library(parallel); library(cmdstanr); library(posterior)
+library(ggplot2);
+library(knitr); 
+library(tidyverse);
+library(rstan);
+library(tufte);
+library(parallel);
+library(cmdstanr);
+library(posterior)
 set_cmdstan_path("/Users/hyunjimoon/Dropbox/20_paper/charles/code/cmdstan")
 source(file.path("tools", "cmdStanTools.r"))
 source(file.path("tools", "stanTools.r"))
@@ -37,7 +44,6 @@ data$rho_beta_prior <- 14.8171
 
 file <- file.path(modelDir, modelName, paste0(modelName, ".stan"))
 mod <- cmdstan_model(file, quiet = FALSE)
-#out <- mod$sample(data, chains = 1,iter_warmup = 100, iter_sampling = 100, parallel_chains = 1, save_warmup = FALSE, thin = 1)
 
 sbc <- function(stanmodel, modelName, data, M, ...) {
   # parameter names
@@ -50,12 +56,14 @@ sbc <- function(stanmodel, modelName, data, M, ...) {
   pars_names <- unique(sub("^([a-z,A-Z,0-9,_]*)_.*;", "\\1", pars_names))
   noUnderscore <- grepl(";", pars_names, fixed=TRUE)
   
-  post <- parallel::mclapply(1:M, FUN = function(m) {
+  post = list()
+  
+  for(m in 1:M) {
     S <- seq(from = 1, to = .Machine$integer.max, length.out = M)[m]
     out <- stanmodel$sample(data, chains = 1,iter_warmup = 100, iter_sampling = 100, seed = floor(S), parallel_chains = 1, save_warmup = FALSE, thin = 1)
-    print(out$summary())
-    return(out)
-  })
+    post[[m]] = out
+  }
+  
   print(post)
   bad <- sapply(post, FUN = function(x) class(x)[1] != "CmdStanMCMC")
   print(bad)
@@ -63,9 +71,8 @@ sbc <- function(stanmodel, modelName, data, M, ...) {
 
   # prior predictive distribution
   Y <- sapply(post, FUN = function(p) {
-    print(typeof(p))
-    summary <- summary(p)
-    means <- p %>%
+    summary <- p$summary()
+    means <- summary %>%
       filter(str_detect(variable, "y_$|y_\\[.*\\]")) %>%
       pull(mean)
     means[grepl("y_$|y_\\[.*\\]", names(means))] 
@@ -73,6 +80,7 @@ sbc <- function(stanmodel, modelName, data, M, ...) {
   
   # realizations of parameter
   pars <- sapply(post, FUN = function(p) {
+    summary <- p$summary()
     means <-  summary %>%
       filter(str_detect(variable, "y_$|y_\\[.*\\]")) %>%
       pull(mean)
