@@ -2,8 +2,6 @@ library(ggplot2); library(knitr);  library(tidyverse); library(rstan); library(t
 set_cmdstan_path("/Users/hyunjimoon/Dropbox/20_paper/charles/code/cmdstan")
 source(file.path("tools", "cmdStanTools.r"))
 source(file.path("tools", "stanTools.r"))
-rm(list = ls(all.names = TRUE))
-gc()
 options(digits = 2);  options(htmltools.dir.version = FALSE)
 
 modelName <- "disease_map_ela_sbc"
@@ -50,36 +48,38 @@ sbc <- function(stanmodel, modelName, data, M, ...) {
   pars_names <- unique(sub("^([a-z,A-Z,0-9,_]*)_.*;", "\\1", pars_names))
   noUnderscore <- grepl(";", pars_names, fixed=TRUE)
   
-  post <- parallel::mclapply(1:M, FUN = function(m) {
-    S <- seq(from = 1, to = .Machine$integer.max, length.out = M)[m]
-    out <- stanmodel$sample(data, chains = 1,iter_warmup = 100, iter_sampling = 100, seed = floor(S), parallel_chains = 1, save_warmup = FALSE, thin = 1)
-    print(out$summary())
-    return(out)
-  })
-  print(post)
-  bad <- sapply(post, FUN = function(x) class(x)[1] != "CmdStanMCMC")
-  print(bad)
-  post <- post[!bad]
+  # post <- parallel::mclapply(1:M, FUN = function(m) {
+  #   S <- seq(from = 1, to = .Machine$integer.max, length.out = M)[m]
+  #   out <- stanmodel$sample(data, chains = 1,iter_warmup = 100, iter_sampling = 100, seed = floor(S), parallel_chains = 1, save_warmup = FALSE, thin = 1)
+  #   print(out$summary())
+  #   return(out)
+  # })
+  post = list()      
+  for(m in 1:M) {     
+    S <- seq(from = 1, to = .Machine$integer.max, length.out = M)[m]     
+    out <- stanmodel$sample(data, chains = 1,iter_warmup = 100, iter_sampling = 100, seed = floor(S), parallel_chains = 1, save_warmup = FALSE, thin = 1)     
+    print(out$summary())     
+  post[[m]] = out   
+  }
+
+  #bad <- sapply(post, FUN = function(x) class(x)[1] != "CmdStanMCMC")
+  #print(bad)
+  #post <- post[!bad]
 
   # prior predictive distribution
   Y <- sapply(post, FUN = function(p) {
-    print(typeof(p))
-    summary <- summary(p)
-    means <- p %>%
+    summary <- p$summary()
+    summary %>%
       filter(str_detect(variable, "y_$|y_\\[.*\\]")) %>%
       pull(mean)
-    means[grepl("y_$|y_\\[.*\\]", names(means))] 
   })
   
   # realizations of parameter
   pars <- sapply(post, FUN = function(p) {
-    means <-  summary %>%
-      filter(str_detect(variable, "y_$|y_\\[.*\\]")) %>%
-      pull(mean)
-    mark <- summary %>%
+    summary <- p$summary()
+    summary %>%
       filter(str_detect(variable, "pars_\\[[[:digit:]]+\\]")) %>%
       pull(mean)
-    return(means[mark])
   })
   
   # ranks: unthinned binary values for draw > true
@@ -100,8 +100,8 @@ sbc <- function(stanmodel, modelName, data, M, ...) {
       as_draws_matrix()
   })
   out <- list(ranks = ranks, Y = Y, pars = pars, sampler_params = sampler_params)
-  return(out)
   class(out) <- "sbc"
+  out#return(out)
 }
 
 
@@ -111,9 +111,12 @@ plot.sbc <- function(x, thin = 3, ...) {
   parameter <- as.factor(rep(colnames(u), each = nrow(u)))
   d <- data.frame(u = c(u), parameter)
   suppressWarnings(ggplot2::ggplot(d) +
-                     ggplot2::geom_freqpoly(ggplot2::aes(x = u), ...) +
+                     ggplot2::geom_freqpoly(ggplot2::aes(x = u)) +
                      ggplot2::facet_wrap("parameter"))
 }
 
-sbc_res <- sbc(mod, modelName, data, M = 10)
+mod <- cmdstan_model("models/sbc_test.stan")
+mod$sample(data = list(N = 10, a = 1.0, b = 1.0), chains = 1)
+
+sbc_res <- sbc(mod, modelName, data = list(N = 10, a = 1.0, b = 1.0), M = 5)
 plot(sbc_res)

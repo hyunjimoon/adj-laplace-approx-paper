@@ -141,8 +141,8 @@ num_monitored_params <- function(model, data) {
 #         and 1D array of p-values, and 1D array of thinning rates
 sbc <- function(model, data,
                 sbc_sims = 1000, stan_sims = 999,
-                init_thin = 4, max_thin = 64,
-                target_n_eff = 0.8 * stan_sims) {
+                init_thin = 4, max_thin = 64, n_eff_reltol=0.2 #target_n_eff = 0.8 * stan_sims
+                ) {
   num_params <- num_monitored_params(model, data)
   ranks <- matrix(nrow = sbc_sims, ncol = num_params)
   thins <- rep(NA, sbc_sims)
@@ -161,8 +161,8 @@ sbc <- function(model, data,
       #n_eff <- parameterTable(stanfit, c("lp__"))$n_eff
       n_eff <- fit$summary("lp__") %>% pull("ess_bulk")
       print(fit$summary("lp__"))
-
-      if (n_eff >= target_n_eff || (2 * thin) > max_thin) break; 
+      if(n_eff/stan_sims >= 1-n_eff_reltol && n_eff/stan_sims <= 1+n_eff_reltol) break
+      #if (n_eff >= target_n_eff || (2 * thin) > max_thin) break; 
       thin <- 2 * thin
     }
     thins[n] <- thin
@@ -179,7 +179,7 @@ sbc <- function(model, data,
 }
 
 # working example:
-# model <- cmdstan_model("models3/normal-sbc.stan")
+# model <- cmdstan_model("models/normal-sbc.stan")
 # result <- sbc(model, data = NULL, sbc_sims = 5, stan_sims = 7,
 #               max_thin = 32)
 

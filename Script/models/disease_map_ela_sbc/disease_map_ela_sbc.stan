@@ -66,6 +66,7 @@ generated quantities {
   vector[n_obs] log_lik;
   pars_[1] = alpha_;
   pars_[2] = rho_;
+  //print("alpha_", alpha_, "rho_", rho_);
   for (n in 1:n_obs) log_lik[n] = laplace_marginal_poisson(y, n_samples, ye, K_functor,
                                      phi, x, delta, delta_int, theta_0); 
 }
