@@ -40,9 +40,6 @@ if (reduced) {
 data$rho_alpha_prior <- 2.42393
 data$rho_beta_prior <- 14.8171
 
-file <- file.path(modelDir, modelName, paste0(modelName, ".stan"))
-mod <- cmdstan_model(file, quiet = FALSE)
-
 sbc <- function(stanmodel, modelName, data, M, ...) {
   # parameter names
   stan_code <- stanmodel$code()
@@ -65,12 +62,9 @@ sbc <- function(stanmodel, modelName, data, M, ...) {
     S <- seq(from = 1, to = .Machine$integer.max, length.out = M)[m]     
     out <- stanmodel$sample(data, chains = 1,iter_warmup = 100, iter_sampling = 100, seed = floor(S), parallel_chains = 1, save_warmup = FALSE, thin = 1)     
     print(out$summary())     
-  post[[m]] = out   
+    post[[m]] = out   
   }
 
-  #bad <- sapply(post, FUN = function(x) class(x)[1] != "CmdStanMCMC")
-  #print(bad)
-  #post <- post[!bad]
   # prior predictive distribution
   Y <- sapply(post, FUN = function(p) {
     summary <- p$summary()
@@ -106,7 +100,7 @@ sbc <- function(stanmodel, modelName, data, M, ...) {
   })
   out <- list(ranks = ranks, Y = Y, pars = pars, sampler_params = sampler_params)
   class(out) <- "sbc"
-  out#return(out)
+  return(out)
 }
 
 
@@ -119,9 +113,8 @@ plot.sbc <- function(x, thin = 3, ...) {
                      ggplot2::geom_freqpoly(ggplot2::aes(x = u)) +
                      ggplot2::facet_wrap("parameter"))
 }
+file <- file.path(modelDir, modelName, paste0(modelName, ".stan"))
+mod <- cmdstan_model(file, quiet = FALSE)
 
-mod <- cmdstan_model("models/sbc_test.stan")
-mod$sample(data = list(N = 10, a = 1.0, b = 1.0), chains = 1)
-
-sbc_res <- sbc(mod, modelName, data = list(N = 10, a = 1.0, b = 1.0), M = 5)
-plot(sbc_res)
+sbc_res <- sbc(mod, modelName, data = data, M = 500)
+#plot(sbc_res)
