@@ -34,10 +34,11 @@ transformed data{
   matrix[n_obs, n_obs] Sigma_;
   vector[n_obs] theta_;
   int y [n_obs];
-  for (n in 1:n_obs) K_[n, n] = K_[n,n] + 1e-8;
+  for (n in 1:n_obs) K_[n, n] = K_[n,n] + tol;
   Sigma_ = cholesky_decompose(K_);
   theta_ = Sigma_ * eta_;
   y = poisson_log_rng(log(ye) + theta_);
+  //print("alpha_", alpha_, "rho_", rho_);
 }
 
 parameters {

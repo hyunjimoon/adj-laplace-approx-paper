@@ -85,9 +85,9 @@ sbc <- function(stanmodel, modelName, data, N, M, n_eff_reltol=0.2, ..., save_pr
     thin = 1
     max_thin = 8
     while(TRUE){
-      out <- stanmodel$sample(data, chains = 1, iter_sampling = thin * M, seed = floor(S), parallel_chains = 1, save_warmup = FALSE, thin = 1)
+      out <- stanmodel$sample(data, chains = 1, iter_sampling = thin * M, seed = floor(S), parallel_chains = 1, save_warmup = FALSE, thin = thin)
       n_eff <- out$summary("lp__") %>% pull("ess_bulk")
-      if(n_eff/iter_sampling >= 1-n_eff_reltol && n_eff/iter_sampling <= 1+n_eff_reltol) break
+      if(n_eff/(thin * M) >= 1-n_eff_reltol && n_eff/(thin * M) <= 1+n_eff_reltol) break
       if(thin > max_thin) break
       thin = 2 * thin
     }
@@ -98,27 +98,6 @@ sbc <- function(stanmodel, modelName, data, N, M, n_eff_reltol=0.2, ..., save_pr
       save(out, file=file)
     }
   }
-  # if (doSave) {
-  #   bad <- c()
-  #   for (m in 1:length(todo)) {
-  #     file <- sbcFitFile(save_progress, stanmodel, modelName, todo[m])
-  #     got <- try(load(file), silent=TRUE)
-  #     if (is(got, "try-error")) {
-  #       bad <- c(bad, file)
-  #       next
-  #     }
-  #     post[[m]] <- out
-  #   }
-  #   if (length(bad)) stop(paste("Remove corrupt files:",
-  #                               paste(bad, collapse=' '), "\nThen try again"))
-  # }
-  # 
-  # bad <- sapply(post, FUN = function(x) class(x)[1] != "CmdStanMCMC")
-  # if (any(bad)) {
-  #   warning(sum(bad), " out of ", length(todo), " runs failed. Try decreasing 'init_r'")
-  #   if(all(bad)) stop("cannot continue")
-  #   post <- post[!bad]
-  # }
 
   # prior predictive distribution
   Y <- sapply(post, FUN = function(p) {
@@ -137,22 +116,23 @@ sbc <- function(stanmodel, modelName, data, N, M, n_eff_reltol=0.2, ..., save_pr
   })
   
   # ranks: unthinned binary values for draw > true
-  ranks <- lapply(post, FUN = function(p) {
+  ranks_ <- lapply(post, FUN = function(p) {
     r <- subset_draws(p$draws(), "ranks_") %>%
       as_draws_matrix()
     if (is.null(dim(r))) {
       r <- as.matrix(r)
     }
     colnames(r) <- pars_names
-    r[] <- r > 0
+    #r[] <- r > 0
     return(r)
   })
   
   # divergences
-  sampler_params <- lapply(post, FUN = function(p){ p$sampler_diagnostics() %>%
-      as_draws_matrix()
-  })
-  list(ranks = ranks, Y = Y, pars = pars, sampler_params = sampler_params)
+  # sampler_params <- lapply(post, FUN = function(p){ p$sampler_diagnostics() %>%
+  #     as_draws_matrix()
+  # })
+  out <- list(ranks = ranks, Y = Y, pars = pars) #, sampler_params = sampler_params
+  return(out)
 }
 
 plot.sbc <- function(x, thin = 3, ...) {
@@ -169,9 +149,11 @@ plot.sbc <- function(x, thin = 3, ...) {
 # mod <- cmdstan_model(file, quiet = FALSE)
 # file <- file.path(modelDir, modelName, paste0(modelName, ".stan"))
 
+modelName <- "bern"
 mod = cmdstan_model(stan_file = "models/sbc_test.stan")
-data = list(N = 10, a = 1.0, b = 1.0) 
-sbc_res <- sbc(mod, modelName, data = data, N = 3, M = 20, save_progress = outDir)
+data = list(N = 10, a = 1.0, b = 1.0)
+
+sbc_res <- sbc(mod, modelName, data = data, N = 30, M = 20, save_progress = outDir)
 plot.sbc(sbc_res)
 
 print.sbc <- function(x, ...) {
