@@ -58,6 +58,7 @@ model {
 
   target += laplace_marginal_poisson(y, n_samples, ye, K_functor,
                                      phi, x, delta, delta_int, theta_0);
+  target += poisson_lpmf(y | exp(log(ye) + theta_0));
 }
 
 generated quantities {
