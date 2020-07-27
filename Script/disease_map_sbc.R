@@ -162,16 +162,16 @@ uniformity.sbc <- function(x, bins = 20, thin = 3){
   }
 }
 
-data$rho_alpha_prior <- 2.42393
-data$rho_beta_prior <- 14.8171
-modelName <- "disease_map_ela_sbc"
+data$rho_alpha_prior <- 2 #2.42393
+data$rho_beta_prior <- 20 #14.8171
+modelName <- "disease_map_ela_sbc_2_20_3rd"
 file <- file.path(modelDir, modelName, paste0(modelName, ".stan"))
 mod <- cmdstan_model(file, quiet = FALSE)
 
 # modelName <- "bern_param_1_100_2"
 # mod = cmdstan_model(stan_file = "models/sbc_test.stan")
 # data = list(N = 10, a = 1, b = 100)
-N = 20 #999 # num of sim and fit
+N = 10 #999 # num of sim and fit
 M = 117 # 897 (6n -3) # num of post. draw - related to iter_sampling - not used currently
 
 sbc_res <- sbc(mod, modelName, data = data, N = N, M = M, save_progress = outDir)

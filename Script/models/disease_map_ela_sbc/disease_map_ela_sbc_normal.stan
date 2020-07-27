@@ -17,8 +17,8 @@ data {
   vector[n_obs] ye;
   real <lower = 0> rho_alpha_prior;
   real <lower = 0> rho_beta_prior;
-  real <lower = 0> alpha_alpha_prior;
-  real <lower = 0> alpha_beta_prior;
+  real <lower = 0> alpha_mu_prior;
+  real <lower = 0> alpha_sd_prior;
 }
 
 transformed data{
@@ -55,7 +55,7 @@ transformed parameters {
 
 model {
   rho ~ inv_gamma(rho_alpha_prior, rho_beta_prior);
-  alpha ~ inv_gamma(alpha_alpha_prior, alpha_beta_prior);
+  alpha ~ normal(alpha_mu_prior, alpha_sd_prior);
 
   target += laplace_marginal_poisson(y, n_samples, ye, K_functor,
                                      phi, x, delta, delta_int, theta_0);

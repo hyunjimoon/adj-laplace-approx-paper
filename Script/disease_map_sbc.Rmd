@@ -1,0 +1,336 @@
+---
+title: "disease_map_sbc"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(
+  include = TRUE,  cache = FALSE,  collapse = TRUE,  echo = TRUE,
+  message = FALSE, tidy = FALSE,  warning = FALSE,   comment = "  ",
+  dev = "png", dev.args = list(bg = '#FFFFF8'), dpi = 300,
+  fig.align = "center",  fig.width = 7,  fig.asp = 0.618,  fig.show = "hold",
+  out.width = "90%")
+```
+
+## R Markdown
+
+import settings
+
+```{r cars}
+library(ggplot2);
+library(knitr); 
+library(tidyverse);
+library(rstan);
+library(tufte);
+library(parallel);
+library(cmdstanr);
+library(posterior)
+set_cmdstan_path("/Users/hyunjimoon/Dropbox/20_paper/charles/code/cmdstan")
+source(file.path("tools", "cmdStanTools.r"))
+source(file.path("tools", "stanTools.r"))
+options(digits = 2);  options(htmltools.dir.version = FALSE)
+
+modelName <- "disease_map_ela_sbc"
+dataFile <- "disease_data_100.r"
+scriptDir <- getwd()
+modelDir <- file.path(scriptDir, "models")
+dataDir <- file.path(scriptDir, "data")
+delivDir <- file.path(scriptDir, "deliv", modelName)
+nChains <- 4
+parallel_chains <- min(nChains, detectCores())
+
+data <- read_rdump(file.path(dataDir, dataFile))
+```
+
+Problem:
+```
+1. HMC is struggling:
+- high number of divergent transitions
+- can't find a reasonable initial value to start sampling. 
+The latter would cause the chain to "finish unexpectedly". This wasn't an issue with the real data, but it might be an issue with some of the simulated data.
+
+2. improve prior
+from inv-gamma to normal for alpha
+```
+Analysis on the simulated values; compare y
+## As in sbc settings, true dgp and fitting model is connected only through y. Therefore I decided y as the model performance standard. Would comparing parameters(alpha, rho, (theta)) better?
+
+```{r ycompare, echo=FALSE}
+yhat <- function(modelName, data){
+  chains <- 4
+  parallel_chains <- min(chains, detectCores())
+  scriptDir <- getwd()
+  delivDir <- file.path(scriptDir, "deliv", modelName)
+  prefit <- file.path(delivDir, paste0(modelName, ".rda"))
+  stanfile <- file.path(modelDir, modelName, paste0(modelName, ".stan"))
+  
+  if (grepl("sbc", modelName)){
+    chains <- 1
+    parallel_chains <- 1
+    prefit <- file.path(scriptDir, "deliv", "disease_map_ela_sbc", paste0(modelName, ".rda"))
+    if (grepl("sbc_n", modelName)){ stanfile <- file.path(modelDir, "disease_map_ela_sbc", paste0("disease_map_ela_sbc_normal", ".stan"))
+    }else{stanfile <- file.path(modelDir, "disease_map_ela_sbc", paste0("disease_map_ela_sbc", ".stan"))}
+  }
+  
+  if (file.exists(prefit)){
+    fit <- readRDS(prefit)
+  }else{ 
+    mod <- cmdstan_model(stanfile, quiet = FALSE)
+    fit <- mod$sample(data, chains = chains, iter_warmup = 1000, iter_sampling = 1000,
+               parallel_chains = parallel_chains, save_warmup = FALSE, thin = 1)
+    fit$save_object(file = prefit)
+  }
+  fit$summary()%>% filter(str_detect(variable, "y_")) %>%  pull(mean)
+}
+
+y_real <- data$y
+yhat_std <- yhat("disease_map", data)
+yhat_ela <- yhat("disease_map_ela", data)
+
+data$rho_alpha_prior <- 2.42393
+data$rho_beta_prior <- 14.8171
+yhat_ela_sbc_ori <- yhat("disease_map_ela_sbc_ori", data)
+```
+
+```{r}
+x = seq(1:100)
+g<- ggplot() + 
+  geom_bar(mapping = aes(x = x, y = y_real), stat = "identity", fill = "grey") +
+  geom_line(mapping = aes(x = x, y = yhat_std), color = "green") + 
+  geom_line(mapping = aes(x = x, y = yhat_ela_sbc_ori), color = "blue") +
+  ylim(c(0,950))
+g
+```
+y_ from standard and ela model are same. They are generated via quntities block based on **learned** $\phi$, $\theta$; almost identical.
+y_ from disease_map_ela_sbc, via transformed parameters block based on prior $phi$, $theta$(=$\eta \sim N(0,1)$), however are differnt.
+## The only difference being the value of given parameters, dgp is same, prior is the cause.
+I would change priors, starting with alpha. From inv-gamma to normal, as michael did (https://betanalpha.github.io/assets/case_studies/gp_part3/part3.html).
+
+```{r}
+data$alpha_mu_prior <- 0
+data$alpha_sd_prior <- 10
+yhat_ela_sbc_n0_10_ori <- yhat("disease_map_ela_sbc_n0_10_ori", data)
+
+g<- ggplot() + 
+  geom_bar(mapping = aes(x = x, y = y_real), stat = "identity", fill = "grey") +
+  geom_line(mapping = aes(x = x, y = yhat_ela_sbc_ori), color = "blue") + 
+  geom_line(mapping = aes(x = x, y = yhat_ela_sbc_n0_10_ori), color = "purple") +
+  ylim(c(0,500))
+g
+```
+
+accurcay: orignal > normal
+speed: orignal <<< normal
+giving normal prior to alpha leads to much fewer cases of divergences. purple needs to be scaled up, though.
+
+## from your comment "alpha ~ inv_gamma(10, 10);  // CHECK -- is this a good prior?" in (disease_map.stan), could you explain why you choose inv_gamma(10,10)? Did you perform hp tuning, similar to what Bentancourt explains in his case study? 
+gp_prior_tune.stan from https://betanalpha.github.io/assets/case_studies/gp_part3/part3.html
+
+```{r}
+data$alpha_mu_prior <- 0
+data$alpha_sd_prior <- 10
+
+data$rho_alpha_prior <- 2
+data$rho_beta_prior <- 30
+yhat_ela_sbc_n0_10_2_30 <- yhat("disease_map_ela_sbc_n0_10_2_30", data)
+data$rho_beta_prior <- 35
+yhat_ela_sbc_n0_10_2_35 <- yhat("disease_map_ela_sbc_n0_10_2_35", data)
+data$rho_beta_prior <- 40
+yhat_ela_sbc_n0_10_2_40 <- yhat("disease_map_ela_sbc_n0_10_2_40", data)
+
+data$rho_alpha_prior <- 1.9
+yhat_ela_sbc_n0_10_1dot9_35 <- yhat("disease_map_ela_sbc_n0_10_1dot9_35", data)
+data$rho_beta_prior <- 2
+yhat_ela_sbc_n0_10_2_35 <- yhat("disease_map_ela_sbc_n0_10_2_35", data)
+data$rho_beta_prior <- 2.1
+yhat_ela_sbc_n0_10_2dot1_35 <- yhat("disease_map_ela_sbc_n0_10_2dot1_35", data)
+
+g<- ggplot() + 
+  geom_bar(mapping = aes(x = x, y = y_real), stat = "identity", fill = "grey") +
+  geom_line(mapping = aes(x = x, y = yhat_ela_sbc_n0_10_2_30), color = "blue") +
+  geom_line(mapping = aes(x = x, y = yhat_ela_sbc_n0_10_2_35), color = "purple") +
+  geom_line(mapping = aes(x = x, y = yhat_ela_sbc_n0_10_2_40), color = "black") +
+  ylim(c(0,1000))
+g
+
+g<- ggplot() + 
+  geom_bar(mapping = aes(x = x, y = y_real), stat = "identity", fill = "grey") +
+  geom_line(mapping = aes(x = x, y = yhat_ela_sbc_n0_10_1dot9_35), color = "blue") +
+  geom_line(mapping = aes(x = x, y = yhat_ela_sbc_n0_10_2_35), color = "purple") +
+  geom_line(mapping = aes(x = x, y = yhat_ela_sbc_n0_10_2dot1_35), color = "black") +
+  ylim(c(0,1000))
+g
+
+g<- ggplot() + 
+  geom_bar(mapping = aes(x = x, y = y_real), stat = "identity", fill = "grey") +
+  geom_line(mapping = aes(x = x, y = yhat_ela_sbc_ori), color = "blue") +
+  geom_line(mapping = aes(x = x, y = yhat_ela_sbc_n0_10_1dot9_35), color = "purple") +
+  ylim(c(0,1000))
+g
+```
+Overall, using $\alpha \sim normal(0,10), \rho \sim inv-gamma(1.9, 35)$ has both better accuracy and speed(less divgerences) compared to the original sbc priors.
+
+all plots are in order of increasing mean for rho priors, which is b/(a-1). As "values of $\rho$ closer to zero = high frequency GP(stan user manual)" black which has the highest mean shows low frequency, but it is sensitive to local peaks.
+## (what is the definition of low frequency? shouldn't black be less sensitive to local peaks from plot1,2?)
+
+---
+### optimizing both seems onerous. should I fix alpha prior and tune rho priors?
+
+```{r}
+modelName <- "disease_map"
+delivDir <- file.path(scriptDir, "deliv", modelName)
+prefit <- file.path(delivDir, paste0(modelName, ".rda"))
+fit <- readRDS(prefit)
+fit$summary()%>% filter(str_detect(variable, "alpha")) %>%  select(c(mean, median)) #0.68, 0.66
+fit$summary()%>% filter(str_detect(variable, "rho")) %>%  select(c(mean, median)) #2.2, 2.1
+
+modelName <- "disease_map_ela"
+delivDir <- file.path(scriptDir, "deliv", modelName)
+prefit <- file.path(delivDir, paste0(modelName, ".rda"))
+fit <- readRDS(prefit)
+fit$summary()%>% filter(str_detect(variable, "alpha")) %>%  select(c(mean, median)) #0.67, 0.65
+fit$summary()%>% filter(str_detect(variable, "rho")) %>%  select(c(mean, median)) #2.2, 2.2
+
+modelName <- "disease_map_ela_sbc_ori"
+delivDir <- file.path(scriptDir, "deliv", "disease_map_ela_sbc")
+prefit <- file.path(delivDir, paste0(modelName, ".rda"))
+fit <- readRDS(prefit)
+fit$summary()%>% filter(str_detect(variable, "alpha")) %>%  select(c(mean, median)) #0.89, 0.85
+fit$summary()%>% filter(str_detect(variable, "rho")) %>%  select(c(mean, median)) #15, 13
+```
+### rho values for the first two models much smaller compared to rho values from your paper(Fig.2, mean over 10). something is wrong, right?..
+
+
+END=================
+to future hyunji:
+`rho_alpha_prior` lower than 2 is bad(too much variance).
+
+```{r sbc, echo=FALSE}
+sbcFitFile <- function(save_progress, stanmodel, modelName, S) {
+  file.path(save_progress, paste0(modelName, '-', S, '.rda'))
+}
+
+sbc <- function(stanmodel, modelName, data, N, M, n_eff_reltol=0.2, ..., save_progress, load_incomplete=FALSE) {
+  doSave <- !missing(save_progress)
+  # parameter names
+  stan_code <- stanmodel$code()
+  stan_code <- scan(what = character(), sep = "\n", quiet = TRUE, text = stan_code)
+  pars_lines <- grep("[[:space:]]*(pars_)|(pars_\\[.*\\])[[:space:]]*=", stan_code, value = TRUE)
+  pars_lines <- pars_lines[!grepl("^[[:space:]]*vector", pars_lines) & 
+                             !grepl("^[[:space:]]*real", pars_lines)]   
+  pars_names <- trimws(sapply(strsplit(pars_lines, split = "=", fixed = TRUE), tail, n = 1))
+  pars_names <- unique(sub("^([a-z,A-Z,0-9,_]*)_.*;", "\\1", pars_names))
+  noUnderscore <- grepl(";", pars_names, fixed=TRUE)
+  
+  if (!load_incomplete) {
+    todo <- as.integer(seq(from = 0, to = .Machine$integer.max, length.out = N))
+  } else {
+    mn <- modelName
+    runs <- dir(save_progress)
+    runs <- runs[grepl(paste0("^", mn,'-(\\d+).rda$'), runs)]
+    if (length(runs) == 0) {
+      stop(paste("No completed runs found in", dir,
+                 "matching regular expression", paste0("^", mn,'-(\\d+).rda$'),
+                 "\nDid you use sbc(..., save_progress='/path/to/results')?"))
+    }
+    todo <- as.integer(sub(paste0(mn,'-(\\d+).rda'), "\\1", runs))
+  }
+  
+  post = list()      
+  for(n in 1:N) {     
+    S <- seq(from = 1, to = .Machine$integer.max, length.out = N)[n]
+    #load if exists
+    if (doSave) {
+      file <- sbcFitFile(save_progress, stanmodel,modelName, S) #TODO data chage should be reflected in fitname
+      if (file.exists(file)) {
+        got <- try(load(file), silent=TRUE)
+        post[[n]] <- out
+        next
+      }
+    }
+    #iter_sampling = M = 3 * (20n - 1)
+    out <- stanmodel$sample(data, chains = 1, iter_warmup = 500, iter_sampling = 597, parallel_chains = 1, save_warmup = FALSE, thin = 1) #seed = floor(S)
+    print(out$summary())  
+    post[[n]] = out
+    #save
+    if (doSave) {
+      save(out, file=file)
+    }
+  }
+
+  # prior predictive distribution
+  Y <- sapply(post, FUN = function(p) {
+    summary <- p$summary()
+    summary %>%
+      filter(str_detect(variable, "y_$|y_\\[.*\\]")) %>%
+      pull(mean)
+  })
+  
+  # realizations of parameter
+  pars <- sapply(post, FUN = function(p) {
+    summary <- p$summary()
+    summary %>%
+      filter(str_detect(variable, "pars_\\[[[:digit:]]+\\]")) %>%
+      pull(mean)
+  })
+  
+  # ranks: unthinned binary values for draw > true
+  ranks <- lapply(post, FUN = function(p) {
+    r <- subset_draws(p$draws(), variable = "ranks_") %>%
+      as_draws_matrix()
+    if (is.null(dim(r))) {
+      r <- as.matrix(r)
+    }
+    colnames(r) <- pars_names
+    r[] <- r > 0
+    return(r)
+  })
+  
+  # divergences
+  # sampler_params <- lapply(post, FUN = function(p){ p$sampler_diagnostics() %>%
+  #     as_draws_matrix()
+  # })
+  out <- list(ranks = ranks, Y = Y, pars = pars) #, sampler_params = sampler_params
+  return(out)
+}
+
+plot.sbc <- function(x, thin = 3, ...) {
+  thinner <- seq(from = 1, to = nrow(x$ranks[[1]]), by = thin)
+  u <- t(sapply(x$ranks, FUN = function(r) 1L + colSums(r[thinner, , drop = FALSE])))
+  parameter <- as.factor(rep(colnames(u), each = nrow(u)))
+  d <- data.frame(u = c(u), parameter)
+  suppressWarnings(ggplot2::ggplot(d) +
+                     ggplot2::geom_freqpoly(ggplot2::aes(x = u)) +
+                     ggplot2::facet_wrap("parameter"))
+}
+
+uniformity.sbc <- function(x, bins = 20, thin = 3){
+  samples <- nrow(x$ranks[[1]])
+  thinner <- seq(from = 1, to = samples, by = thin)
+  ranks <- t(sapply(x$ranks, FUN = function(r) 1L + colSums(r[thinner, , drop = FALSE])))
+  parameter <- as.factor(rep(colnames(ranks), each = nrow(ranks)))
+  num_params <- length(unique(parameter))
+  M = samples / thin
+  max_rank = M + 1
+  bin_size <- max_rank / bins
+  pval <- rep(NA, num_params)
+
+  for (i in 1:num_params){
+    bin_count <- rep(0, bins)
+    for (m in 1: length(ranks[,1])) {
+      bin <- ceiling(ranks[m,i] / bin_size)
+      bin_count[bin] <- bin_count[bin] + 1
+    }
+  # sum of bin_count is N (= total fit number)
+  pval[i] <- chisq.test(bin_count)$p.value
+  print("bin_count")
+  print(bin_count)
+  print("uniformity pvalue")
+  print(pval)
+  }
+}
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

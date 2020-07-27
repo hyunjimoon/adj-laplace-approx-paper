@@ -53,4 +53,6 @@ generated quantities {
   vector[n_obs] theta
     = laplace_approx_poisson_rng(y, n_samples, ye, K_functor,
                                  phi, x, delta, delta_int, theta_0);
+  int y_[n_obs];
+  y_ = poisson_log_rng(log(ye) + theta);                       
 }
