@@ -1,3 +1,18 @@
+# Returns parameter arrays separated into divergent and non-divergent transitions
+partition_div <- function(fit) {
+  nom_params <- extract(fit, permuted=FALSE)
+  n_chains <- dim(nom_params)[2]
+  params <- as.data.frame(do.call(rbind, lapply(1:n_chains, function(n) nom_params[,n,])))
+  
+  sampler_params <- get_sampler_params(fit, inc_warmup=FALSE)
+  divergent <- do.call(rbind, sampler_params)[,'divergent__']
+  params$divergent <- divergent
+  
+  div_params <- params[params$divergent == 1,]
+  nondiv_params <- params[params$divergent == 0,]
+  
+  return(list(div_params, nondiv_params))
+}
 
 getSimsTable <- function(x, ...){
     require(dplyr)

@@ -17,8 +17,8 @@ data {
   vector[n_obs] ye;
   real <lower = 0> rho_alpha_prior;
   real <lower = 0> rho_beta_prior;
-  real <lower = 0> alpha_alpha_prior;
-  real <lower = 0> alpha_beta_prior;
+  real <lower = 0> alpha_mu_prior;
+  real <lower = 0> alpha_sd_prior;
 }
 
 transformed data{
@@ -29,7 +29,7 @@ transformed data{
   int n_phi = 2;
   int n_samples[n_obs] = rep_array(1, n_obs);
   
-  real<lower = 0> alpha_ = inv_gamma_rng(10, 10);
+  real<lower = 0> alpha_ = normal_rng(alpha_mu_prior, alpha_sd_prior);
   real<lower = 0> rho_ = inv_gamma_rng(rho_alpha_prior, rho_beta_prior);
   vector[n_obs] eta_ = to_vector(normal_rng(rep_vector(0, n_obs), rep_vector(1, n_obs)));
   matrix[n_obs, n_obs] K_ = cov_exp_quad(x, alpha_, rho_);
@@ -55,7 +55,7 @@ transformed parameters {
 
 model {
   rho ~ inv_gamma(rho_alpha_prior, rho_beta_prior);
-  alpha ~ inv_gamma(alpha_alpha_prior, alpha_beta_prior);
+  alpha ~ normal(alpha_mu_prior, alpha_sd_prior);
 
   target += laplace_marginal_poisson(y, n_samples, ye, K_functor,
                                      phi, x, delta, delta_int, theta_0);

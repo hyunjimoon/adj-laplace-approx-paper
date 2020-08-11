@@ -14,11 +14,7 @@ knitr::opts_chunk$set(
   out.width = "90%")
 ```
 
-## R Markdown
-
-import settings
-
-```{r cars}
+```{r}
 library(ggplot2);
 library(knitr); 
 library(tidyverse);
@@ -55,7 +51,8 @@ The latter would cause the chain to "finish unexpectedly". This wasn't an issue 
 from inv-gamma to normal for alpha
 ```
 Analysis on the simulated values; compare y
-## As in sbc settings, true dgp and fitting model is connected only through y. Therefore I decided y as the model performance standard. Would comparing parameters(alpha, rho, (theta)) better?
+
+@ As in sbc settings, true dgp and fitting model is connected only through y. Therefore I decided y as the model performance standard. Would comparing parameters(alpha, rho, (theta)) better?
 
 ```{r ycompare, echo=FALSE}
 yhat <- function(modelName, data){
@@ -105,8 +102,8 @@ g
 ```
 y_ from standard and ela model are same. They are generated via quntities block based on **learned** $\phi$, $\theta$; almost identical.
 y_ from disease_map_ela_sbc, via transformed parameters block based on prior $phi$, $theta$(=$\eta \sim N(0,1)$), however are differnt.
-## The only difference being the value of given parameters, dgp is same, prior is the cause.
-I would change priors, starting with alpha. From inv-gamma to normal, as michael did (https://betanalpha.github.io/assets/case_studies/gp_part3/part3.html).
+
+@ The only difference being the value of given parameters, dgp is same, prior is the cause. I would change priors, starting with alpha. From inv-gamma to normal, as michael did (https://betanalpha.github.io/assets/case_studies/gp_part3/part3.html).
 
 ```{r}
 data$alpha_mu_prior <- 0
@@ -121,11 +118,9 @@ g<- ggplot() +
 g
 ```
 
-accurcay: orignal > normal
-speed: orignal <<< normal
-giving normal prior to alpha leads to much fewer cases of divergences. purple needs to be scaled up, though.
+Compared to the original, accuracy is lower but speed is much faster. Giving normal prior to alpha leads to much fewer cases of divergences. purple needs to be scaled up, though.
 
-## from your comment "alpha ~ inv_gamma(10, 10);  // CHECK -- is this a good prior?" in (disease_map.stan), could you explain why you choose inv_gamma(10,10)? Did you perform hp tuning, similar to what Bentancourt explains in his case study? 
+@ from your comment "alpha ~ inv_gamma(10, 10);  // CHECK -- is this a good prior?" in (disease_map.stan), could you explain why you choose inv_gamma(10,10)? Did you perform hp tuning, similar to what Bentancourt explains in his case study? 
 gp_prior_tune.stan from https://betanalpha.github.io/assets/case_studies/gp_part3/part3.html
 
 ```{r}
@@ -173,10 +168,9 @@ g
 Overall, using $\alpha \sim normal(0,10), \rho \sim inv-gamma(1.9, 35)$ has both better accuracy and speed(less divgerences) compared to the original sbc priors.
 
 all plots are in order of increasing mean for rho priors, which is b/(a-1). As "values of $\rho$ closer to zero = high frequency GP(stan user manual)" black which has the highest mean shows low frequency, but it is sensitive to local peaks.
-## (what is the definition of low frequency? shouldn't black be less sensitive to local peaks from plot1,2?)
+@ (what is the definition of low frequency? shouldn't black be less sensitive to local peaks from plot1,2?)
 
----
-### optimizing both seems onerous. should I fix alpha prior and tune rho priors?
+@@ optimizing both seems onerous. should I fix alpha prior and tune rho priors?
 
 ```{r}
 modelName <- "disease_map"
@@ -200,7 +194,7 @@ fit <- readRDS(prefit)
 fit$summary()%>% filter(str_detect(variable, "alpha")) %>%  select(c(mean, median)) #0.89, 0.85
 fit$summary()%>% filter(str_detect(variable, "rho")) %>%  select(c(mean, median)) #15, 13
 ```
-### rho values for the first two models much smaller compared to rho values from your paper(Fig.2, mean over 10). something is wrong, right?..
+@@ rho values for the first two models much smaller compared to rho values from your paper(Fig.2, mean over 10). something is wrong, right?..
 
 
 END=================
