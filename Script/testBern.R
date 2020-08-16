@@ -196,9 +196,9 @@ set_Data_Model_Dir <- function(dataFile, modelName){
   print(data)
   file <- file.path(modelDir, modelName, paste0(modelName, ".stan"))
   mod <- cmdstan_model(file)
-  return(list(data = data, mod = mod, delivDir = delivDir)) #list(data, mod, delivDir)
+  return(list(data = data, mod = mod, delivDir = delivDir)) 
 }
-list[data, mod, delivDir] <- set_Data_Model_Dir("ovarian_reduced.data.R", "bernoulli_logit_glm_ela_ACself")
+# list[data, mod, delivDir] <- set_Data_Model_Dir("ovarian_reduced.data.R", "bernoulli_logit_glm_ela_ACself")
 
 data = set_Data_Model_Dir("ovarian_reduced.data.R", "bernoulli_logit_glm_ela_ACself")$data
 mod = set_Data_Model_Dir("ovarian_reduced.data.R", "bernoulli_logit_glm_ela_ACself")$mod
