@@ -1,5 +1,5 @@
-d <- 100
-n <- 54
+n_covariates <- 100
+n_obs <- 54
 nu_global <- 1
 nu_local <- 1
 scale_global <- 0.00716225070989233
