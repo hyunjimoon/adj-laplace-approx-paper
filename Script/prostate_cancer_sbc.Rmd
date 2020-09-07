@@ -1,0 +1,110 @@
+---
+title: "prostate_cancer_sbc"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(
+  include = TRUE,  cache = FALSE,  collapse = TRUE,  echo = TRUE,
+  message = FALSE, tidy = FALSE,  warning = FALSE,   comment = "  ",
+  dev = "png", dev.args = list(bg = '#FFFFF8'), dpi = 300,
+  fig.align = "center",  fig.width = 7,  fig.asp = 0.618,  fig.show = "hold",
+  out.width = "90%")
+```
+
+
+```{r}
+library(ggplot2);
+theme_set(theme_minimal())
+library(knitr); 
+library(tidyverse);
+library(rstan);
+library(tufte);
+library(parallel);
+library(cmdstanr);
+library(posterior);
+library("bayesplot");
+library("ggplot2");
+library("rstanarm");
+set_cmdstan_path("/Users/hyunjimoon/Dropbox/20_paper/charles/code/cmdstan")
+options(digits = 2);  options(htmltools.dir.version = FALSE)
+parallel:::setDefaultClusterOptions(setup_strategy = "sequential")
+scriptDir <- getwd()
+modelDir <- file.path(scriptDir, "models")
+dataDir <- file.path(scriptDir, "data")
+nChains <- 4
+parallel_chains <- min(nChains, detectCores())
+
+set_Data_Model_Dir <- function(dataFile, modelName){
+  scriptDir <- getwd()
+  modelDir <- file.path(scriptDir, "models")
+  dataDir <- file.path(scriptDir, "data")
+  outDir <- file.path(scriptDir, "deliv", modelName)
+  delivDir <- file.path(scriptDir, "deliv", modelName)
+  dir.create(delivDir)
+  data <- read_rdump(file.path(dataDir, dataFile))
+  print(data)
+  file <- file.path(modelDir, modelName, paste0(modelName, ".stan"))
+  mod <- cmdstan_model(file)
+  return(list(data = data, mod = mod, delivDir = delivDir)) 
+}
+set_Model_Dir <- function(modelName){
+  scriptDir <- getwd()
+  modelDir <- file.path(scriptDir, "models")
+  dataDir <- file.path(scriptDir, "data")
+  outDir <- file.path(scriptDir, "deliv", modelName)
+  delivDir <- file.path(scriptDir, "deliv", modelName)
+  dir.create(delivDir)
+  file <- file.path(modelDir, modelName, paste0(modelName, ".stan"))
+  mod <- cmdstan_model(file)
+  return(list(data = data, mod = mod, delivDir = delivDir)) 
+}
+println <- function(msg) cat(msg); cat("\n")
+printf <- function(pattern, ...) println(sprintf(pattern, ...))
+util <- new.env()
+source('tools/stanTools.R', local=util)
+source('tools/sbcTools.R', local=util)
+
+c_light <- c("#DCBCBC")
+c_light_highlight <- c("#C79999")
+c_mid <- c("#B97C7C")
+c_mid_highlight <- c("#A25050")
+c_dark <- c("#8F2727")
+c_dark_highlight <- c("#7C0000")
+
+c_light_trans <- c("#DCBCBC80")
+c_light_highlight_trans <- c("#C7999980")
+c_mid_trans <- c("#B97C7C80")
+c_mid_highlight_trans <- c("#A2505080")
+c_dark_trans <- c("#8F272780")
+c_dark_highlight_trans <- c("#7C000080")
+
+c_light_teal="#6B8E8E"
+c_mid_teal="#487575"
+c_dark_teal="#1D4F4F"
+
+c_green_trans <- c("#00FF0080")
+c_superfine <- c("#8F272705")
+```
+
+
+# 3. prostate cancer
+$\lambda_{86}$ which has low shrinkage, in other words high impact, should display different behavior with $\lambda_{1}$. This can be verified with SBC.
+
+
+```{r}
+dataName <- "prostate_200.data.R"
+modelName <- "bernoulli_logit_glm_ela_sbc"
+res = set_Data_Model_Dir(dataName, modelName)
+data = res$data
+mod = res$mod
+delivDir = res$delivDir
+N = 600 
+L = 297 
+sbc_res_bern_lik <- sbc(mod, modelName, data = data, N = N, L = L, save_progress = delivDir)
+ppc.sbc(sbc_res_bern_lik)
+uniformity.sbc(sbc_res_bern_lik, modelName)
+plot.sbc(sbc_res_bern_lik, modelName)
+```

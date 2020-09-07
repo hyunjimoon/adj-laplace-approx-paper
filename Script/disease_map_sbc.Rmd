@@ -14,6 +14,7 @@ knitr::opts_chunk$set(
   out.width = "90%")
 ```
 
+
 ```{r}
 library(ggplot2);
 library(knitr); 
@@ -22,309 +23,292 @@ library(rstan);
 library(tufte);
 library(parallel);
 library(cmdstanr);
-library(posterior)
+library(posterior);
+library("bayesplot");
+library("ggplot2");
+library("rstanarm");
 set_cmdstan_path("/Users/hyunjimoon/Dropbox/20_paper/charles/code/cmdstan")
-source(file.path("tools", "cmdStanTools.r"))
-source(file.path("tools", "stanTools.r"))
 options(digits = 2);  options(htmltools.dir.version = FALSE)
-
-modelName <- "disease_map_ela_sbc"
-dataFile <- "disease_data_100.r"
+parallel:::setDefaultClusterOptions(setup_strategy = "sequential")
+#modelName <- "disease_map_ela_sbc_n"
+#dataFile <- "disease_data_100.r"
 scriptDir <- getwd()
 modelDir <- file.path(scriptDir, "models")
 dataDir <- file.path(scriptDir, "data")
 delivDir <- file.path(scriptDir, "deliv", modelName)
 nChains <- 4
 parallel_chains <- min(nChains, detectCores())
-
-data <- read_rdump(file.path(dataDir, dataFile))
-```
-
-Problem:
-```
-1. HMC is struggling:
-- high number of divergent transitions
-- can't find a reasonable initial value to start sampling. 
-The latter would cause the chain to "finish unexpectedly". This wasn't an issue with the real data, but it might be an issue with some of the simulated data.
-
-2. improve prior
-from inv-gamma to normal for alpha
-```
-Analysis on the simulated values; compare y
-
-@ As in sbc settings, true dgp and fitting model is connected only through y. Therefore I decided y as the model performance standard. Would comparing parameters(alpha, rho, (theta)) better?
-
-```{r ycompare, echo=FALSE}
-yhat <- function(modelName, data){
-  chains <- 4
-  parallel_chains <- min(chains, detectCores())
+set_Data_Model_Dir <- function(dataFile, modelName){
   scriptDir <- getwd()
+  modelDir <- file.path(scriptDir, "models")
+  dataDir <- file.path(scriptDir, "data")
+  outDir <- file.path(scriptDir, "deliv", modelName)
+  delivDir <- file.path("deliv", modelName)
+  data <- read_rdump(file.path(dataDir, dataFile))
+  file <- file.path(modelDir, modelName, paste0(modelName, ".stan"))
+  mod <- cmdstan_model(file)
+  return(list(data = data, mod = mod, delivDir = delivDir)) 
+}
+set_Model_Dir <- function(modelName){
+  scriptDir <- getwd()
+  modelDir <- file.path(scriptDir, "models")
+  dataDir <- file.path(scriptDir, "data")
+  outDir <- file.path(scriptDir, "deliv", modelName)
   delivDir <- file.path(scriptDir, "deliv", modelName)
-  prefit <- file.path(delivDir, paste0(modelName, ".rda"))
-  stanfile <- file.path(modelDir, modelName, paste0(modelName, ".stan"))
-  
-  if (grepl("sbc", modelName)){
-    chains <- 1
-    parallel_chains <- 1
-    prefit <- file.path(scriptDir, "deliv", "disease_map_ela_sbc", paste0(modelName, ".rda"))
-    if (grepl("sbc_n", modelName)){ stanfile <- file.path(modelDir, "disease_map_ela_sbc", paste0("disease_map_ela_sbc_normal", ".stan"))
-    }else{stanfile <- file.path(modelDir, "disease_map_ela_sbc", paste0("disease_map_ela_sbc", ".stan"))}
-  }
-  
-  if (file.exists(prefit)){
-    fit <- readRDS(prefit)
-  }else{ 
-    mod <- cmdstan_model(stanfile, quiet = FALSE)
-    fit <- mod$sample(data, chains = chains, iter_warmup = 1000, iter_sampling = 1000,
-               parallel_chains = parallel_chains, save_warmup = FALSE, thin = 1)
-    fit$save_object(file = prefit)
-  }
-  fit$summary()%>% filter(str_detect(variable, "y_")) %>%  pull(mean)
+  dir.create(delivDir)
+  file <- file.path(modelDir, modelName, paste0(modelName, ".stan"))
+  mod <- cmdstan_model(file)
+  return(list(data = data, mod = mod, delivDir = delivDir)) 
 }
+data <- read_rdump(file.path(dataDir, dataFile))
+println <- function(msg) cat(msg); cat("\n")
+printf <- function(pattern, ...) println(sprintf(pattern, ...))
+util <- new.env()
+source('tools/stanTools.R', local=util)
+source('tools/sbcTools.R', local=util)
+c_light <- c("#DCBCBC")
+c_light_highlight <- c("#C79999")
+c_mid <- c("#B97C7C")
+c_mid_highlight <- c("#A25050")
+c_dark <- c("#8F2727")
+c_dark_highlight <- c("#7C0000")
 
-y_real <- data$y
-yhat_std <- yhat("disease_map", data)
-yhat_ela <- yhat("disease_map_ela", data)
+c_light_trans <- c("#DCBCBC80")
+c_light_highlight_trans <- c("#C7999980")
+c_mid_trans <- c("#B97C7C80")
+c_mid_highlight_trans <- c("#A2505080")
+c_dark_trans <- c("#8F272780")
+c_dark_highlight_trans <- c("#7C000080")
 
-data$rho_alpha_prior <- 2.42393
-data$rho_beta_prior <- 14.8171
-yhat_ela_sbc_ori <- yhat("disease_map_ela_sbc_ori", data)
+c_light_teal="#6B8E8E"
+c_mid_teal="#487575"
+c_dark_teal="#1D4F4F"
+
+c_green_trans <- c("#00FF0080")
+c_superfine <- c("#8F272705")
+```
+Three concept exists: Model-based inference, Model-based calibration, Computation. Model-based inference quantifies which model configuration is consistent with the observed data. Model-based calibration is more self-diagnostic. Without using an observed data, it checks the inference within the scope of a given model that is assumed to be sufficient. Computation concerns how inferences are implemented in practice, especially when inferences can be implemented only approximately. Approximatation models including MCMC, HMC, Lapplace and their combination are examples. Testing computational faithfulness of an algorithmic implementation can be considered as a model-based calibration where the computed inferences are compared to the true inferences.
+
+
+1. Introducing Laplace approximate model for latent gp, 2.validating its algorithmic faithfulness with SBC are two main purpose for this casestudy. For the second purpose, one thing to convey is : though real data is not used directly in model based calibration, it assists mcd in terms of pr modellike Even though real data is not directly used in the process, it should by quantifying the range of inferential outcomes that could arise within the scope of a given model. This can be used to ask “if my modeling assumptions are sufficient then will my inferences behave well enough
+The purpose of SBC could be largely divided into two: inferential calibration or infer computational faithfulness. The first could be understand as self-diagnose a model or diagnose a validity of an approximate model. For detailed explanation, refer to this [discussion](https://discourse.mc-stan.org/t/parameter-recovery-vs-sampling-diagnostics-rhat-sbc-divergences/17409/8?u=hyunji.moon).
+
+probabilistic nature of this calibration has two huge advantages to the worst-case frequentist calibration: it’s much easier to (approximately) implement in practice using simulations and it focuses on the model configurations consistent with our prior model instead of more extreme model configurations.
+
+If the computational faithfulness hasn’t been checked then poor parameter recover could be due to an insufficient model or corruption by approximation error. There’s no way to decouple those two without checking the computation independently.
+
+
+SBC is one of the few tools that could examine choice of computational method (Talts, 2018). 
+When SBC returns nonunifrom results, it does not pinpoint the cause of the problem; only the fact that something is wrong. To borrow Michael's words,  Therefore, listing the problem casuing candidate could assist the job of upgrading the model that could pass the uniformity test in the end. This list differs according to the purpose of SBC.
+
+SBC could largely applied for the following two purposes: 1. self-diagnose a model 2. diagnose a validity of approximate model. For the first purpose, identical models are used to generate data on which the model is fit to retrieve the posterior draws.On the otherhand, for the second purpose, while standard model is used to generate data, we apply approximate models to fit the data. In this case study, standard poission model generates with std model and fits with ela model.
+
+It is worth noting that prior as well as likelihood is being tested in SBC. There are many reasons why prior cannot be given in advance especially for SBC.
+1. Data-dependent: generally prior is set so that 10% of both sides of tails are cut. For example, in Talts(2018), for INLA sbc in gaussian process, ρ and σ is set so that Pr( ρ < 0.1) = Pr(σ > 1) = Pr(τ > 1) = 0.1 is met. Therefore, different priors are used depending on the characteristics of data.
+
+2. SBC is more prior-sensitive.
+In real world data-fitting situation, the existence of data(likelihood) offsets the effect of mis-specified prior. But in sbc situation, the effect of prior is greater as data itself is generated from the prior. When prior is too-heavy tailed, for example, it simulates unreasonable values which the model might struggle to fit.
+
+Based on this note, at the end of SBC, conclusions like "this model works well with the _normal_ prior whose mean and standard deviation is _in range of 0 and 1_" is possible. Similary, but with some change, conclusions such as "this approximation model works well for _Poisson likelihood_ and _normal_ prior whose mean and standard deviation is _in range of 0 and 1_" is possible. In our setting the prior is given on marginal standard deviation($\alpha$) and length scale parameter($\rho$).
+
+Here comes the list: prior, likelihood, computational method are what should be checked upon once you encounter nonuniformity in SBC plot. For approximation validity check purpose, the computaional mehtod. For the prior, one could change the prior model, from half-normal to inv-gamma for example, its parameter values. Likelihood can be modified similarly. The compuational method refers to the specific mechanism by which the samples are retrieved given the prior and likelihood. This cause has a large scope; MCMC(Rhat), HMC(), approximate models (adjoint-differential embedded laplace model, ADVI, INLA). A few Compuationa method can have its own diagnositcs and by comparing the diagnostic and eliminating out the candidates. As no single diagnostic method can tell all problems, It is important to interpret the results through a multiple testing lens.
+
+Based on this understanding of SBC, each three types of sources are to be tested and compared.
+
+----
+1. thinnig: all posterior samples (= thin * M = 3 * 199) are stored and thinned before plotting and uniformity test.
+
+2. prior predictive check(@not needed in our context): In general, prior predictive checking is necessary as sbc assess the accuracy of computational method only within the context that prior samples are generated through real date generating proceess; on which the posterior distributions are learned. Prior predictive checking is one way to do this.However, when the purpose is to measure how well approximate model is, the original model is assumed as the true data generating model. Therefore, comparing the generated prior samples with the original dataset is not necessary. 
+
+## 1. prior comparison
+prior is not fixed for the model for two reasons.1. Data-dependentgenerally prior is set so that 10% of both sides of tails are cut. For example, Pr( ρ < 0.1) = Pr(σ > 1) = Pr(τ > 1) = 0.1.2. SBC is more prior-sensitive. In real world data-fitting situation, the existence of data(likelihood) offsets the effect of mis-specified prior. But in sbc situation, the effect of prior is greater as data itself is generated from the prior.
+
+
+Let's plot sbc plot for each parameter varying the mean and the variance for the two hyperparameters. When 0 is used for the means, divergences were observed and the numerous fit were never completed. 
+```{r}
+# modelDir <- file.path(scriptDir, "models")
+# dataDir <- file.path(scriptDir, "data")
+# delivDir <- file.path(scriptDir, "deliv", modelName)
+# file <- file.path(modelDir, modelName, paste0(modelName, ".stan"))
+# mod <- cmdstan_model(file, quiet = FALSE)
+# submodelName <- "disease_map_ela_sbc_n_m0_sddot1"
+# data$alpha_mu_prior <- 0
+# data$alpha_sd_prior <- 0.1
+# data$rho_mu_prior <- 0
+# data$rho_sd_prior <- 0.1
+# 
+# N = 20 #(bins = 20)*N # num of sim and fit
+# M = 597 # 897 (6n -3) # num of post. draw - related to iter_sampling - not used currently
+# sbc_res_m0_sddot1<- sbc(mod, submodelName, data = data, N = N, M = M, save_progress = delivDir)
+# ppc.sbc(sbc_res_m0_sddot1)
+# uniformity.sbc(sbc_res_m0_sddot1)
+# plot.sbc(sbc_res_m0_sddot1)                                                          
+```
+ 
+Posterior mean were learned and plugged in; 0.7 and 2.2. Next we try to vary the sd starting from 0.01 until the point when it breaks.
+
+```{r}
+modelName <- "disease_map_ela_sbc_n"
+submodelName <- "disease_map_ela_sbc_n_dot01"
+dataName <- "disease_data_100.r"
+res <- set_Data_Model_Dir(dataName, modelName)
+data <- res$data
+mod <- res$mod
+delivDir <- file.path(scriptDir, "deliv", submodelName)
+
+data$alpha_mu_prior <- 0.7 
+data$alpha_sd_prior <- 0.01
+data$rho_mu_prior <- 2.2
+data$rho_sd_prior <- 0.01
+N = 999 # num of sim and fit
+L = 100 # num of posterior draw
+sbc_res_me_dot01<- sbc(mod, submodelName, data = data, N = N, L = L, save_progress = delivDir)
+ppc.sbc(sbc_res_me_dot01)
+uniformity.sbc(sbc_res_me_dot01, submodelName)
+plot.sbc(sbc_res_me_dot01, submodelName)                                                          
 ```
 
 ```{r}
-x = seq(1:100)
-g<- ggplot() + 
-  geom_bar(mapping = aes(x = x, y = y_real), stat = "identity", fill = "grey") +
-  geom_line(mapping = aes(x = x, y = yhat_std), color = "green") + 
-  geom_line(mapping = aes(x = x, y = yhat_ela_sbc_ori), color = "blue") +
-  ylim(c(0,950))
-g
-```
-y_ from standard and ela model are same. They are generated via quntities block based on **learned** $\phi$, $\theta$; almost identical.
-y_ from disease_map_ela_sbc, via transformed parameters block based on prior $phi$, $theta$(=$\eta \sim N(0,1)$), however are differnt.
+submodelName <- "disease_map_ela_sbc_n_dot05"
+res <- set_Data_Model_Dir(dataName, modelName)
+mod <- res$mod
+delivDir <- file.path(scriptDir, "deliv", submodelName)
 
-@ The only difference being the value of given parameters, dgp is same, prior is the cause. I would change priors, starting with alpha. From inv-gamma to normal, as michael did (https://betanalpha.github.io/assets/case_studies/gp_part3/part3.html).
+data$alpha_mu_prior <- 0.7
+data$alpha_sd_prior <- 0.05
+data$rho_mu_prior <- 2.2
+data$rho_sd_prior <- 0.05
+N = 999 
+L = 100 
+sbc_res_me_sddot05<- sbc(mod, submodelName, data = data, N = N, L = L, save_progress = delivDir)
+ppc.sbc(sbc_res_me_sddot05)
+uniformity.sbc(sbc_res_me_sddot05, submodelName)
+plot.sbc(sbc_res_me_sddot05, submodelName)
+```
 
 ```{r}
+submodelName <- "disease_map_ela_sbc_n_dot1"
+res <- set_Data_Model_Dir(dataName, modelName)
+mod <- res$mod
+delivDir <- file.path(scriptDir, "deliv", submodelName)
+
+data$alpha_mu_prior <- 0.7
+data$alpha_sd_prior <- 0.1
+data$rho_mu_prior <- 2.2
+data$rho_sd_prior <- 0.1
+N = 999 
+L = 100 
+sbc_res_me_sddot1<- sbc(mod, submodelName, data = data, N = N, L = L, save_progress = delivDir)
+ppc.sbc(sbc_res_me_sddot1)
+uniformity.sbc(sbc_res_me_sddot1, submodelName)
+plot.sbc(sbc_res_me_sddot1, submodelName)
+```
+
+```{r}
+submodelName <- "disease_map_ela_sbc_n_1"
+data$alpha_mu_prior <- 0.7
+data$alpha_sd_prior <- 1
+data$rho_mu_prior <- 2.2
+data$rho_sd_prior <- 1
+N = 999 
+L = 100 
+sbc_res_me_sd1<- sbc(mod, submodelName, data = data, N = N, L = L, save_progress = delivDir)
+ppc.sbc(sbc_res_me_sd1)
+uniformity.sbc(sbc_res_me_sd1)
+plot.sbc(sbc_res_me_sd1)
+```
+
+```{r}
+modelName <- "dm_ela_sbc_invg"
+dataName <- "disease_data_100.r"
+res <- set_Data_Model_Dir(dataName, modelName)
+data <- res$data
+mod <- res$mod
+delivDir <- res$delivDir
+# same first and second moment with normal prior with best sbc
+#b/(a-1) = 0.7, b^2/(a-1)^2(a-2) =0.05 (a = 59/5 b= 189/25)
+#a/b = 2.2, b^2/(a-1)^2 =0.05 (a =494/5 b= 5379/25)
+data$alpha_location_prior <- 59/5
+data$alpha_scale_prior <- 189/25
+data$rho_location_prior <- 494/5
+data$rho_scale_prior <- 5379/25
+N = 999 
+L = 100 
+sbc_res_me_sddot05_invg<- sbc(mod, modelName, data = data, N = N, L = L, save_progress = delivDir)
+ppc.sbc(sbc_res_me_sddot05_invg)
+uniformity.sbc(sbc_res_me_sddot05_invg, modelName)
+plot.sbc(sbc_res_me_sddot05_invg, modelName)
+```
+
+```{r}
+submodelName <- "bernoulli_disease_map"
 data$alpha_mu_prior <- 0
-data$alpha_sd_prior <- 10
-yhat_ela_sbc_n0_10_ori <- yhat("disease_map_ela_sbc_n0_10_ori", data)
+data$alpha_sd_prior <- 1
+data$rho_mu_prior <- 0
+data$rho_sd_prior <- 1
+N = 10 #(bins = 20)*N # num of sim and fit
+M = 597 # 897 (6n -3) # num of post. draw - related to iter_sampling - not used currently
 
-g<- ggplot() + 
-  geom_bar(mapping = aes(x = x, y = y_real), stat = "identity", fill = "grey") +
-  geom_line(mapping = aes(x = x, y = yhat_ela_sbc_ori), color = "blue") + 
-  geom_line(mapping = aes(x = x, y = yhat_ela_sbc_n0_10_ori), color = "purple") +
-  ylim(c(0,500))
-g
+res = set_Data_Model_Dir(dataName, modelName)
+data = res$data
+mod = res$mod
+delivDir = res$delivDir
+
+sbc_res_me_sd1<- sbc(mod, submodelName, data = data, N = N, M = M, save_progress = delivDir)
+ppc.sbc(sbc_res_me_sd1)
+uniformity.sbc(sbc_res_me_sd1)
+plot.sbc(sbc_res_me_sd1)
 ```
 
-Compared to the original, accuracy is lower but speed is much faster. Giving normal prior to alpha leads to much fewer cases of divergences. purple needs to be scaled up, though.
-
-@ from your comment "alpha ~ inv_gamma(10, 10);  // CHECK -- is this a good prior?" in (disease_map.stan), could you explain why you choose inv_gamma(10,10)? Did you perform hp tuning, similar to what Bentancourt explains in his case study? 
-gp_prior_tune.stan from https://betanalpha.github.io/assets/case_studies/gp_part3/part3.html
+## 2. likelihood comparison
+It is known that bernouli likelihood, log-concave though it is, is not friendly to approximation compared to normal, Poisson, binomial, and negative binomial likelihood. The approximation introduces a bias(Kuss and Rasmussen (2005), Vanhatalo, Pietiläinen, and Vehtari (2010), Cseke and Heskes (2011), Vehtari et al. (2016)). Therefore, the sbc of poisson likelihood shows greater uniformity than bernoulli.
 
 ```{r}
-data$alpha_mu_prior <- 0
-data$alpha_sd_prior <- 10
 
-data$rho_alpha_prior <- 2
-data$rho_beta_prior <- 30
-yhat_ela_sbc_n0_10_2_30 <- yhat("disease_map_ela_sbc_n0_10_2_30", data)
-data$rho_beta_prior <- 35
-yhat_ela_sbc_n0_10_2_35 <- yhat("disease_map_ela_sbc_n0_10_2_35", data)
-data$rho_beta_prior <- 40
-yhat_ela_sbc_n0_10_2_40 <- yhat("disease_map_ela_sbc_n0_10_2_40", data)
+list(data, mod) = set_Data_Model_Dir("ovarian_reduced.data.R", "bernoulli_logit_glm_ela_ACself")
+submodelName <- "bernoulli_logit_glm_ela_ACself"
+N = 999 #(bins = 20)*N # num of sim and fit
+M = 597 # 897 (6n -3) # num of post. draw - related to iter_sampling - not used currently
+sbc_res_bern_lik <- sbc(mod, submodelName, data = data, N = N, M = M, save_progress = delivDir)
+ppc.sbc(sbc_res_bern_lik)
+uniformity.sbc(sbc_res_bern_lik)
+plot.sbc(sbc_res_bern_lik)
 
-data$rho_alpha_prior <- 1.9
-yhat_ela_sbc_n0_10_1dot9_35 <- yhat("disease_map_ela_sbc_n0_10_1dot9_35", data)
-data$rho_beta_prior <- 2
-yhat_ela_sbc_n0_10_2_35 <- yhat("disease_map_ela_sbc_n0_10_2_35", data)
-data$rho_beta_prior <- 2.1
-yhat_ela_sbc_n0_10_2dot1_35 <- yhat("disease_map_ela_sbc_n0_10_2dot1_35", data)
-
-g<- ggplot() + 
-  geom_bar(mapping = aes(x = x, y = y_real), stat = "identity", fill = "grey") +
-  geom_line(mapping = aes(x = x, y = yhat_ela_sbc_n0_10_2_30), color = "blue") +
-  geom_line(mapping = aes(x = x, y = yhat_ela_sbc_n0_10_2_35), color = "purple") +
-  geom_line(mapping = aes(x = x, y = yhat_ela_sbc_n0_10_2_40), color = "black") +
-  ylim(c(0,1000))
-g
-
-g<- ggplot() + 
-  geom_bar(mapping = aes(x = x, y = y_real), stat = "identity", fill = "grey") +
-  geom_line(mapping = aes(x = x, y = yhat_ela_sbc_n0_10_1dot9_35), color = "blue") +
-  geom_line(mapping = aes(x = x, y = yhat_ela_sbc_n0_10_2_35), color = "purple") +
-  geom_line(mapping = aes(x = x, y = yhat_ela_sbc_n0_10_2dot1_35), color = "black") +
-  ylim(c(0,1000))
-g
-
-g<- ggplot() + 
-  geom_bar(mapping = aes(x = x, y = y_real), stat = "identity", fill = "grey") +
-  geom_line(mapping = aes(x = x, y = yhat_ela_sbc_ori), color = "blue") +
-  geom_line(mapping = aes(x = x, y = yhat_ela_sbc_n0_10_1dot9_35), color = "purple") +
-  ylim(c(0,1000))
-g
-```
-Overall, using $\alpha \sim normal(0,10), \rho \sim inv-gamma(1.9, 35)$ has both better accuracy and speed(less divgerences) compared to the original sbc priors.
-
-all plots are in order of increasing mean for rho priors, which is b/(a-1). As "values of $\rho$ closer to zero = high frequency GP(stan user manual)" black which has the highest mean shows low frequency, but it is sensitive to local peaks.
-@ (what is the definition of low frequency? shouldn't black be less sensitive to local peaks from plot1,2?)
-
-@@ optimizing both seems onerous. should I fix alpha prior and tune rho priors?
-
-```{r}
-modelName <- "disease_map"
-delivDir <- file.path(scriptDir, "deliv", modelName)
-prefit <- file.path(delivDir, paste0(modelName, ".rda"))
-fit <- readRDS(prefit)
-fit$summary()%>% filter(str_detect(variable, "alpha")) %>%  select(c(mean, median)) #0.68, 0.66
-fit$summary()%>% filter(str_detect(variable, "rho")) %>%  select(c(mean, median)) #2.2, 2.1
-
-modelName <- "disease_map_ela"
-delivDir <- file.path(scriptDir, "deliv", modelName)
-prefit <- file.path(delivDir, paste0(modelName, ".rda"))
-fit <- readRDS(prefit)
-fit$summary()%>% filter(str_detect(variable, "alpha")) %>%  select(c(mean, median)) #0.67, 0.65
-fit$summary()%>% filter(str_detect(variable, "rho")) %>%  select(c(mean, median)) #2.2, 2.2
-
-modelName <- "disease_map_ela_sbc_ori"
-delivDir <- file.path(scriptDir, "deliv", "disease_map_ela_sbc")
-prefit <- file.path(delivDir, paste0(modelName, ".rda"))
-fit <- readRDS(prefit)
-fit$summary()%>% filter(str_detect(variable, "alpha")) %>%  select(c(mean, median)) #0.89, 0.85
-fit$summary()%>% filter(str_detect(variable, "rho")) %>%  select(c(mean, median)) #15, 13
-```
-@@ rho values for the first two models much smaller compared to rho values from your paper(Fig.2, mean over 10). something is wrong, right?..
-
-
-END=================
-to future hyunji:
-`rho_alpha_prior` lower than 2 is bad(too much variance).
-
-```{r sbc, echo=FALSE}
-sbcFitFile <- function(save_progress, stanmodel, modelName, S) {
-  file.path(save_progress, paste0(modelName, '-', S, '.rda'))
-}
-
-sbc <- function(stanmodel, modelName, data, N, M, n_eff_reltol=0.2, ..., save_progress, load_incomplete=FALSE) {
-  doSave <- !missing(save_progress)
-  # parameter names
-  stan_code <- stanmodel$code()
-  stan_code <- scan(what = character(), sep = "\n", quiet = TRUE, text = stan_code)
-  pars_lines <- grep("[[:space:]]*(pars_)|(pars_\\[.*\\])[[:space:]]*=", stan_code, value = TRUE)
-  pars_lines <- pars_lines[!grepl("^[[:space:]]*vector", pars_lines) & 
-                             !grepl("^[[:space:]]*real", pars_lines)]   
-  pars_names <- trimws(sapply(strsplit(pars_lines, split = "=", fixed = TRUE), tail, n = 1))
-  pars_names <- unique(sub("^([a-z,A-Z,0-9,_]*)_.*;", "\\1", pars_names))
-  noUnderscore <- grepl(";", pars_names, fixed=TRUE)
-  
-  if (!load_incomplete) {
-    todo <- as.integer(seq(from = 0, to = .Machine$integer.max, length.out = N))
-  } else {
-    mn <- modelName
-    runs <- dir(save_progress)
-    runs <- runs[grepl(paste0("^", mn,'-(\\d+).rda$'), runs)]
-    if (length(runs) == 0) {
-      stop(paste("No completed runs found in", dir,
-                 "matching regular expression", paste0("^", mn,'-(\\d+).rda$'),
-                 "\nDid you use sbc(..., save_progress='/path/to/results')?"))
-    }
-    todo <- as.integer(sub(paste0(mn,'-(\\d+).rda'), "\\1", runs))
-  }
-  
-  post = list()      
-  for(n in 1:N) {     
-    S <- seq(from = 1, to = .Machine$integer.max, length.out = N)[n]
-    #load if exists
-    if (doSave) {
-      file <- sbcFitFile(save_progress, stanmodel,modelName, S) #TODO data chage should be reflected in fitname
-      if (file.exists(file)) {
-        got <- try(load(file), silent=TRUE)
-        post[[n]] <- out
-        next
-      }
-    }
-    #iter_sampling = M = 3 * (20n - 1)
-    out <- stanmodel$sample(data, chains = 1, iter_warmup = 500, iter_sampling = 597, parallel_chains = 1, save_warmup = FALSE, thin = 1) #seed = floor(S)
-    print(out$summary())  
-    post[[n]] = out
-    #save
-    if (doSave) {
-      save(out, file=file)
-    }
-  }
-
-  # prior predictive distribution
-  Y <- sapply(post, FUN = function(p) {
-    summary <- p$summary()
-    summary %>%
-      filter(str_detect(variable, "y_$|y_\\[.*\\]")) %>%
-      pull(mean)
-  })
-  
-  # realizations of parameter
-  pars <- sapply(post, FUN = function(p) {
-    summary <- p$summary()
-    summary %>%
-      filter(str_detect(variable, "pars_\\[[[:digit:]]+\\]")) %>%
-      pull(mean)
-  })
-  
-  # ranks: unthinned binary values for draw > true
-  ranks <- lapply(post, FUN = function(p) {
-    r <- subset_draws(p$draws(), variable = "ranks_") %>%
-      as_draws_matrix()
-    if (is.null(dim(r))) {
-      r <- as.matrix(r)
-    }
-    colnames(r) <- pars_names
-    r[] <- r > 0
-    return(r)
-  })
-  
-  # divergences
-  # sampler_params <- lapply(post, FUN = function(p){ p$sampler_diagnostics() %>%
-  #     as_draws_matrix()
-  # })
-  out <- list(ranks = ranks, Y = Y, pars = pars) #, sampler_params = sampler_params
-  return(out)
-}
-
-plot.sbc <- function(x, thin = 3, ...) {
-  thinner <- seq(from = 1, to = nrow(x$ranks[[1]]), by = thin)
-  u <- t(sapply(x$ranks, FUN = function(r) 1L + colSums(r[thinner, , drop = FALSE])))
-  parameter <- as.factor(rep(colnames(u), each = nrow(u)))
-  d <- data.frame(u = c(u), parameter)
-  suppressWarnings(ggplot2::ggplot(d) +
-                     ggplot2::geom_freqpoly(ggplot2::aes(x = u)) +
-                     ggplot2::facet_wrap("parameter"))
-}
-
-uniformity.sbc <- function(x, bins = 20, thin = 3){
-  samples <- nrow(x$ranks[[1]])
-  thinner <- seq(from = 1, to = samples, by = thin)
-  ranks <- t(sapply(x$ranks, FUN = function(r) 1L + colSums(r[thinner, , drop = FALSE])))
-  parameter <- as.factor(rep(colnames(ranks), each = nrow(ranks)))
-  num_params <- length(unique(parameter))
-  M = samples / thin
-  max_rank = M + 1
-  bin_size <- max_rank / bins
-  pval <- rep(NA, num_params)
-
-  for (i in 1:num_params){
-    bin_count <- rep(0, bins)
-    for (m in 1: length(ranks[,1])) {
-      bin <- ceiling(ranks[m,i] / bin_size)
-      bin_count[bin] <- bin_count[bin] + 1
-    }
-  # sum of bin_count is N (= total fit number)
-  pval[i] <- chisq.test(bin_count)$p.value
-  print("bin_count")
-  print(bin_count)
-  print("uniformity pvalue")
-  print(pval)
-  }
-}
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+
+
+## 3. compuational method comparison
+advi(or inla) both of which are known to indrouce bias is compared with ela inference. 
+The alternative to SBC could be [PSIS](https://mc-stan.org/loo/reference/pareto-k-diagnostic.html) that is performed based on log_lik in generated quantities block. PSIS diagnostics might be computationally cheaper than SBC, but is a diagnostics that concentrates on specific data rather than model itself. Moreover, PSIS cannot assess the faithfulness of our computational methods.
+
+If the rank outcome could be expressed as the function of posterior $E_{post}[I(\alpha <\alpha_{sim})]$ then, sensitivity of 
+
+#model naming
+empirical mean: no m, yes sd /e.g. disease_map_ela_sbc_n_dot1
+0 mean: yes m, yes sd /e.g. disease_map_ela_sbc_n_m0_sddot1
+<!-- for (i in 1:N){ -->
+<!--   tmp <- sbc_res2$fits[[i]]$output_files() -->
+<!--   rstanfit_sbc <- read_stan_csv(tmp) -->
+<!--   util$check_all_diagnostics(rstanfit_sbc) -->
+<!--   partition <- util$partition_div(rstanfit_sbc) -->
+<!--   div_samples <- partition[[1]] -->
+<!--   nondiv_samples <- partition[[2]] -->
+
+<!--   par(mfrow=c(1, 3)) -->
+<!--   plot(nondiv_samples$rho, nondiv_samples$alpha, log="xy", -->
+<!--        col=c_dark_trans, pch=16, cex=0.8, xlab="rho", ylab="alpha") -->
+<!--   points(div_samples$rho, div_samples$alpha, -->
+<!--          col=c_green_trans, pch=16, cex=0.8) -->
+<!-- } -->
+<!-- theta도 해보는게 좋을까? alpha, rho (hp) 가 theta와 높은상관성 -->
+<!-- plot(nondiv_samples$rho, nondiv_samples$sigma_error_ship, -->
+<!--      col=c_dark_trans, pch=16, cex=0.8, xlab="length_GP_engine", ylab="sigma_error_ship") -->
+<!-- points(div_samples$length_GP_engine, div_samples$sigma_error_ship, -->
+<!--        col=c_green_trans, pch=16, cex=0.8) -->
+
+<!-- plot(nondiv_samples$sigma_GP_engine, nondiv_samples$sigma_error_ship, -->
+<!--      col=c_dark_trans, pch=16, cex=0.8, xlab="sigma_GP_engine", ylab="sigma_error_ship") -->
+<!-- points(div_samples$sigma_GP_engine, div_samples$sigma_error_ship, -->
+<!--        col=c_green_trans, pch=16, cex=0.8) -->

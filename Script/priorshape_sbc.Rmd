@@ -1,0 +1,138 @@
+---
+title: "prior_sbc"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(
+  include = TRUE,  cache = FALSE,  collapse = TRUE,  echo = TRUE,
+  message = FALSE, tidy = FALSE,  warning = FALSE,   comment = "  ",
+  dev = "png", dev.args = list(bg = '#FFFFF8'), dpi = 300,
+  fig.align = "center",  fig.width = 7,  fig.asp = 0.618,  fig.show = "hold",
+  out.width = "90%")
+```
+
+
+```{r}
+library(ggplot2);
+library(knitr); 
+library(tidyverse);
+library(rstan);
+library(tufte);
+library(parallel);
+library(cmdstanr);
+library(posterior);
+library("bayesplot");
+library("ggplot2");
+library("rstanarm");
+set_cmdstan_path("/Users/hyunjimoon/Dropbox/20_paper/charles/code/cmdstan")
+options(digits = 2);  options(htmltools.dir.version = FALSE)
+parallel:::setDefaultClusterOptions(setup_strategy = "sequential")
+scriptDir <- getwd()
+modelDir <- file.path(scriptDir, "models")
+dataDir <- file.path(scriptDir, "data")
+nChains <- 4
+parallel_chains <- min(nChains, detectCores())
+set_Data_Model_Dir <- function(dataFile, modelName){
+  scriptDir <- getwd()
+  modelDir <- file.path(scriptDir, "models")
+  dataDir <- file.path(scriptDir, "data")
+  outDir <- file.path(scriptDir, "deliv", modelName)
+  delivDir <- file.path("deliv", modelName)
+  data <- read_rdump(file.path(dataDir, dataFile))
+  file <- file.path(modelDir, modelName, paste0(modelName, ".stan"))
+  mod <- cmdstan_model(file)
+  return(list(data = data, mod = mod, delivDir = delivDir)) 
+}
+set_Model_Dir <- function(modelName){
+  scriptDir <- getwd()
+  modelDir <- file.path(scriptDir, "models")
+  dataDir <- file.path(scriptDir, "data")
+  outDir <- file.path(scriptDir, "deliv", modelName)
+  delivDir <- file.path(scriptDir, "deliv", modelName)
+  dir.create(delivDir)
+  file <- file.path(modelDir, modelName, paste0(modelName, ".stan"))
+  mod <- cmdstan_model(file)
+  return(list(data = data, mod = mod, delivDir = delivDir)) 
+}
+println <- function(msg) cat(msg); cat("\n")
+printf <- function(pattern, ...) println(sprintf(pattern, ...))
+util <- new.env()
+source('tools/stanTools.R', local=util)
+source('tools/sbcTools.R', local=util)
+c_light <- c("#DCBCBC")
+c_light_highlight <- c("#C79999")
+c_mid <- c("#B97C7C")
+c_mid_highlight <- c("#A25050")
+c_dark <- c("#8F2727")
+c_dark_highlight <- c("#7C0000")
+
+c_light_trans <- c("#DCBCBC80")
+c_light_highlight_trans <- c("#C7999980")
+c_mid_trans <- c("#B97C7C80")
+c_mid_highlight_trans <- c("#A2505080")
+c_dark_trans <- c("#8F272780")
+c_dark_highlight_trans <- c("#7C000080")
+
+c_light_teal="#6B8E8E"
+c_mid_teal="#487575"
+c_dark_teal="#1D4F4F"
+
+c_green_trans <- c("#00FF0080")
+c_superfine <- c("#8F272705")
+```
+
+```{r}
+dataName <- "disease_data_20.r"
+```
+ 
+2. Prior shape 
+Shape of the prior affects the generated data and therefore affect SBC greatly. Here, posterior mean were learned and plugged in; 0.7 and 2.2.
+
+```{r}
+modelName <- "dm_ela_sbc_invg"
+submodelName <- "dm_ela_sbc_invg_20"
+dataName <- "disease_data_20.r"
+res <- set_Data_Model_Dir(dataName, modelName)
+data <- res$data
+mod <- res$mod
+delivDir <- file.path(scriptDir, "deliv", submodelName)
+dir.create(delivDir)
+# same first and second moment with normal prior with best sbc
+#b/(a-1) = 0.7, b^2/(a-1)^2(a-2) =0.05 (a = 59/5 b= 189/25)
+#a/b = 2.2, b^2/(a-1)^2 =0.05 (a =494/5 b= 5379/25)
+data$alpha_location_prior <- 198
+data$alpha_scale_prior <- 138
+data$rho_location_prior <- 1938
+data$rho_scale_prior <- 4261
+N = 1000 
+L = 297 
+sbc_res_me_sddot05_invg<- sbc(mod, modelName, data = data, N = N, L = L, save_progress = delivDir)
+ppc.sbc(sbc_res_me_sddot05_invg)
+uniformity.sbc(sbc_res_me_sddot05_invg, modelName)
+plot.sbc(sbc_res_me_sddot05_invg, modelName)
+```
+
+```{r}
+modelName <- "dm_ela_sbc_t"
+submodelName <- "dm_ela_sbc_t_20"
+dataName <- "disease_data_20.r"
+res <- set_Data_Model_Dir(dataName, modelName)
+data <- res$data
+mod <- res$mod
+delivDir <- file.path(scriptDir, "deliv", submodelName)
+dir.create(delivDir)
+# same first and second moment with normal prior with best sbc
+data$alpha_location_prior <- 0.7
+data$alpha_scale_prior <- 0.05
+data$rho_location_prior <- 2.2
+data$rho_scale_prior <- 0.05
+N = 500 
+L = 297 
+sbc_res_me_sddot05_t<- sbc(mod, modelName, data = data, N = N, L = L, save_progress = delivDir)
+ppc.sbc(sbc_res_me_sddot05_t)
+uniformity.sbc(sbc_res_me_sddot05_t, modelName)
+plot.sbc(sbc_res_me_sddot05_t, modelName)
+```

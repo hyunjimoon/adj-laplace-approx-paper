@@ -15,10 +15,10 @@ data {
   int <lower = 0> n_covariates;
   vector[n_covariates] x[n_obs];
   vector[n_obs] ye;
-  real <lower = 0> rho_mu_prior;
-  real <lower = 0> rho_sd_prior;
   real <lower = 0> alpha_mu_prior;
   real <lower = 0> alpha_sd_prior;
+  real <lower = 0> rho_mu_prior;
+  real <lower = 0> rho_sd_prior;
 }
 
 transformed data{
@@ -70,8 +70,7 @@ generated quantities {
   pars_[1] = alpha_;
   pars_[2] = rho_;
   pars_[3] = theta_[1];
-  vector[n_obs] theta
-  = laplace_approx_poisson_rng(y, n_samples, ye, K_functor,
+  vector[n_obs] theta = laplace_approx_poisson_rng(y, n_samples, ye, K_functor,
                                phi, x, delta, delta_int, theta_0);
   int ranks_[n_par] = {alpha < alpha_, rho < rho_, theta[1] < theta_[1]};
   //print("alpha_", alpha_, "rho_", rho_);
